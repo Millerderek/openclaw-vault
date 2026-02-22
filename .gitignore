@@ -1,0 +1,19 @@
+# Never commit these
+venv/
+*.env
+vault.env
+*.enc
+*.log
+*.pid
+*.png
+backups/
+__pycache__/
+*.pyc
+
+# Runtime outputs
+openclaw.runtime.json
+*.pre_vault_*.json
+*.bak.*
+
+# UI build artifacts (if any)
+ui/node_modules/

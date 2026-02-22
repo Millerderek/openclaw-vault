@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Key Vault</title>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--cyan:#79c0ff;--green:#56d364;--red:#f85149;--yellow:#e3b341}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'SF Mono','Fira Code',monospace;font-size:13px}
+#app{display:flex;height:100vh}
+#sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:1rem 0;flex-shrink:0}
+#main{flex:1;overflow-y:auto;padding:2rem}
+.logo{padding:0 1.25rem 1.25rem;border-bottom:1px solid var(--border);margin-bottom:.5rem}
+.logo h1{font-size:14px;color:var(--cyan);letter-spacing:.05em}
+.logo p{font-size:11px;color:var(--dim);margin-top:2px}
+.nav-item{display:flex;align-items:center;gap:.6rem;padding:.55rem 1.25rem;cursor:pointer;color:var(--dim);border-left:2px solid transparent;transition:all .15s;user-select:none}
+.nav-item:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.nav-item.active{color:var(--cyan);border-left-color:var(--cyan);background:rgba(121,192,255,.08)}
+.nav-icon{font-size:15px;width:18px;text-align:center}
+#status-bar{margin-top:auto;padding:.75rem 1.25rem;border-top:1px solid var(--border);font-size:11px;color:var(--dim)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;background:var(--green)}
+#login-screen{display:flex;align-items:center;justify-content:center;height:100vh}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2rem;width:320px}
+.login-card h2{color:var(--cyan);margin-bottom:1.5rem;font-size:16px}
+.panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.panel-header h2{font-size:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:1rem}
+.card-row{display:flex;align-items:center;padding:.65rem 1rem;border-bottom:1px solid var(--border);gap:.75rem}
+.card-row:last-child{border-bottom:none}
+.card-row:hover{background:rgba(255,255,255,.03)}
+.key-name{flex:1;color:var(--cyan);font-weight:600}
+.key-value{flex:2;color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;cursor:pointer}
+.key-meta{font-size:10px;color:var(--dim);margin-top:2px}
+.form-group{margin-bottom:1rem}
+label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+input,select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:.5rem .75rem;font-family:inherit;font-size:13px;outline:none;transition:border-color .15s}
+input:focus{border-color:var(--cyan)}
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem 1rem;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .15s}
+.btn:hover{border-color:var(--cyan);color:var(--cyan)}
+.btn-primary{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}
+.btn-primary:hover{background:#58a6ff;border-color:#58a6ff;color:var(--bg)}
+.btn-danger{border-color:var(--red);color:var(--red)}
+.btn-danger:hover{background:rgba(248,81,73,.15)}
+.btn-sm{padding:.25rem .6rem;font-size:11px}
+.btn-logout{margin:0 1.25rem .75rem;font-size:11px}
+.badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;text-transform:uppercase}
+.badge-green{background:rgba(86,211,100,.15);color:var(--green);border:1px solid rgba(86,211,100,.3)}
+.badge-yellow{background:rgba(227,179,65,.15);color:var(--yellow);border:1px solid rgba(227,179,65,.3)}
+.badge-red{background:rgba(248,81,73,.15);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+#toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.75rem 1.25rem;font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:999;max-width:340px}
+#toast.show{opacity:1}
+#toast.success{border-color:var(--green);color:var(--green)}
+#toast.error{border-color:var(--red);color:var(--red)}
+#toast.info{border-color:var(--cyan);color:var(--cyan)}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;width:460px;max-width:95vw}
+.modal h3{margin-bottom:1.25rem;color:var(--cyan)}
+.modal-footer{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1.25rem}
+.audit-row{display:grid;grid-template-columns:160px 120px 90px 1fr;gap:.5rem;padding:.4rem 1rem;border-bottom:1px solid var(--border);font-size:11px;align-items:center}
+.audit-row:last-child{border-bottom:none}
+.audit-header{color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.empty-state{text-align:center;padding:3rem;color:var(--dim)}
+.stale-banner{background:rgba(227,179,65,.1);border:1px solid rgba(227,179,65,.3);border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;color:var(--yellow);font-size:12px}
+.stale-row{border-left:3px solid var(--yellow)}
+.secret-box{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.5rem .75rem;font-size:16px;letter-spacing:.15em;text-align:center;color:var(--cyan);margin:.5rem 0}
+.token-reveal{background:var(--bg);border:1px solid var(--yellow);border-radius:4px;padding:.75rem;word-break:break-all;color:var(--yellow);font-size:12px;margin:.75rem 0}
+.hidden{display:none!important}
+hr{border:none;border-top:1px solid var(--border);margin:1.5rem 0}
+small{font-size:11px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="login-screen">
+  <div class="login-card">
+    <h2>🔐 OpenClaw Vault</h2>
+    <div class="form-group"><label>Admin Password</label><input type="password" id="login-password" placeholder="••••••••••" autofocus></div>
+    <div class="form-group hidden" id="totp-group"><label>Authenticator Code</label><input type="text" id="login-totp" placeholder="123456" maxlength="6" inputmode="numeric"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign In</button>
+    <p id="login-error" style="color:var(--red);font-size:11px;margin-top:.75rem" class="hidden"></p>
+  </div>
+</div>
+<div id="app" class="hidden">
+  <div id="sidebar">
+    <div class="logo"><h1>⚙ KEY VAULT</h1><p>OpenClaw Admin</p></div>
+    <div class="nav-item active" onclick="showTab('keys')" data-tab="keys"><span class="nav-icon">🗝</span> Keys</div>
+    <div class="nav-item" onclick="showTab('tokens')" data-tab="tokens"><span class="nav-icon">🤖</span> Machine Tokens</div>
+    <div class="nav-item" onclick="showTab('totp')" data-tab="totp"><span class="nav-icon">📱</span> MFA / TOTP</div>
+    <div class="nav-item" onclick="showTab('backups')" data-tab="backups"><span class="nav-icon">💾</span> Backups</div>
+    <div class="nav-item" onclick="showTab('audit')" data-tab="audit"><span class="nav-icon">📋</span> Audit Log</div>
+    <button class="btn btn-danger btn-logout" onclick="doLogout()">Sign Out</button>
+    <div id="status-bar"><span class="dot"></span><span id="status-text">Connected</span></div>
+  </div>
+  <div id="main">
+    <div id="tab-keys">
+      <div class="panel-header"><h2>API Keys</h2><button class="btn btn-primary" onclick="openAddKey()">+ Add Key</button></div>
+      <div id="stale-banner" class="hidden stale-banner"></div>
+      <div id="keys-list"></div>
+    </div>
+    <div id="tab-tokens" class="hidden">
+      <div class="panel-header"><h2>Machine Tokens</h2><button class="btn btn-primary" onclick="openMintToken()">+ Mint Token</button></div>
+      <small style="display:block;margin-bottom:1rem">Scope tokens to specific keys for least-privilege.</small>
+      <div id="tokens-list"></div>
+    </div>
+    <div id="tab-totp" class="hidden">
+      <div class="panel-header"><h2>MFA / TOTP</h2></div>
+      <div class="card" style="padding:1.25rem">
+        <p style="margin-bottom:1rem">Protect admin login with a time-based one-time password.</p>
+        <div id="totp-status-area"></div>
+        <hr>
+        <button class="btn btn-primary" onclick="setupTotp()">Generate New TOTP Secret</button>
+        <button class="btn btn-danger" style="margin-left:.5rem" onclick="disableTotp()">Disable TOTP</button>
+      </div>
+      <div id="totp-qr-area" class="hidden card" style="padding:1.25rem;text-align:center">
+        <p style="margin-bottom:.5rem">Scan in your authenticator app:</p>
+        <img id="qr-img" width="200" height="200" alt="QR" style="display:block;margin:1rem auto;border-radius:8px;background:white;padding:8px">
+        <p style="color:var(--dim);font-size:11px">Or enter manually:</p>
+        <div class="secret-box" id="totp-secret-display"></div>
+        <p style="color:var(--yellow);font-size:11px;margin-top:.5rem">⚠ Save this secret now.</p>
+      </div>
+    </div>
+    <div id="tab-backups" class="hidden">
+      <div class="panel-header"><h2>Backups</h2><button class="btn btn-primary" onclick="triggerBackup()">💾 Backup Now</button></div>
+      <div id="backups-list"></div>
+    </div>
+    <div id="tab-audit" class="hidden">
+      <div class="panel-header"><h2>Audit Log</h2><button class="btn" onclick="loadAudit()">↻ Refresh</button></div>
+      <div class="card">
+        <div class="audit-row audit-header"><span>Timestamp</span><span>Event</span><span>IP</span><span>Detail</span></div>
+        <div id="audit-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-key">
+  <div class="modal">
+    <h3 id="modal-key-title">Add Key</h3>
+    <div class="form-group"><label>Key Name</label><input type="text" id="key-name-input" placeholder="ANTHROPIC_API_KEY"></div>
+    <div class="form-group"><label>Value</label><input type="password" id="key-value-input" placeholder="sk-..."><small style="cursor:pointer;margin-top:4px;display:inline-block" onclick="toggleKeyVisibility()">👁 show/hide</small></div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-key')">Cancel</button><button class="btn btn-primary" onclick="saveKey()">Save</button></div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-token">
+  <div class="modal">
+    <h3>Mint Machine Token</h3>
+    <div class="form-group"><label>Label</label><input type="text" id="token-label" placeholder="openclaw-agent"></div>
+    <div class="form-group"><label>Scope (* for all, or KEY1,KEY2)</label><input type="text" id="token-scope" value="*"></div>
+    <div class="form-group"><label>Allowed IPs (blank = any)</label><input type="text" id="token-ips" placeholder="127.0.0.1"></div>
+    <div id="token-result" class="hidden">
+      <p style="color:var(--yellow);font-size:12px;margin-bottom:.5rem">⚠ Copy now — shown once only:</p>
+      <div class="token-reveal" id="token-value"></div>
+      <button class="btn btn-sm" onclick="copyToken()">Copy</button>
+    </div>
+    <div class="modal-footer"><button class="btn" onclick="closeModal('modal-token')">Close</button><button class="btn btn-primary" id="mint-btn" onclick="mintToken()">Mint Token</button></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+function getCsrfToken(){const m=document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);return m?decodeURIComponent(m[1]):''}
+function isLoggedIn(){return!!getCsrfToken()}
+async function api(method,path,body){
+  const headers={'Content-Type':'application/json'};
+  if(!['GET','HEAD','OPTIONS'].includes(method)) headers['X-CSRF-Token']=getCsrfToken();
+  const opts={method,headers,credentials:'same-origin'};
+  if(body) opts.body=JSON.stringify(body);
+  const r=await fetch(path,opts);
+  const data=await r.json().catch(()=>({}));
+  if(r.status===401){showLogin();return null}
+  if(r.status===403&&data.error?.includes('CSRF')){toast('Session expired','error');showLogin();return null}
+  return{ok:r.ok,status:r.status,data}
+}
+function showLogin(){document.getElementById('login-screen').classList.remove('hidden');document.getElementById('app').classList.add('hidden')}
+function showApp(){document.getElementById('login-screen').classList.add('hidden');document.getElementById('app').classList.remove('hidden')}
+async function doLogin(){
+  const pw=document.getElementById('login-password').value;
+  const totp=document.getElementById('login-totp').value;
+  const r=await fetch('/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw,totp}),credentials:'same-origin'});
+  const data=await r.json().catch(()=>({}));
+  if(data.totp_required){document.getElementById('totp-group').classList.remove('hidden');document.getElementById('login-totp').focus();return}
+  if(!r.ok){const el=document.getElementById('login-error');el.textContent=data.error||'Login failed';el.classList.remove('hidden');return}
+  showApp();showTab('keys');loadHealth()
+}
+async function doLogout(){await fetch('/admin/logout',{method:'POST',credentials:'same-origin'});showLogin()}
+document.getElementById('login-password').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('login-totp').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+function showTab(name){
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
+  const loaders={keys:loadKeys,tokens:loadTokens,backups:loadBackups,audit:loadAudit,totp:loadTotpStatus};
+  loaders[name]?.()
+}
+async function loadHealth(){const r=await fetch('/health');const d=await r.json().catch(()=>({}));document.getElementById('status-text').textContent=(d.env||'local')+(d.totp_enabled?' · MFA on':' · no MFA')}
+async function loadKeys(){
+  const r=await api('GET','/admin/keys');if(!r?.ok)return;
+  const keys=r.data.keys;const stale=keys.filter(k=>k.stale);
+  const el=document.getElementById('keys-list');const banner=document.getElementById('stale-banner');
+  if(stale.length){banner.classList.remove('hidden');banner.textContent=`⚠️ ${stale.length} key${stale.length>1?'s have':' has'} not been rotated in 90+ days: ${stale.map(k=>k.name).join(', ')}`}
+  else banner.classList.add('hidden');
+  if(!keys.length){el.innerHTML='<div class="empty-state">No keys yet. Click + Add Key.</div>';return}
+  el.innerHTML=`<div class="card">${keys.map(k=>{
+    const age=k.days_since_rotation!=null?`${k.days_since_rotation}d ago`:'unknown';
+    const sc=k.stale?' stale-row':'';
+    const sb=k.stale?'<span class="badge badge-yellow" style="margin-left:6px">STALE</span>':'';
+    return`<div class="card-row${sc}"><div style="flex:1;min-width:0"><div><span class="key-name">${k.name}</span>${sb}</div><div class="key-meta">Last rotated: ${age}</div></div><span class="key-value" onclick="revealKey('${k.name}')" title="Click to reveal">••••••••••••</span><div style="display:flex;gap:.4rem;flex-shrink:0"><button class="btn btn-sm" onclick="openEditKey('${k.name}')">Edit</button><button class="btn btn-sm btn-danger" onclick="deleteKey('${k.name}')">Delete</button></div></div>`
+  }).join('')}</div><small>${keys.length} key${keys.length!==1?'s':''} · ${stale.length} stale</small>`
+}
+async function revealKey(name){
+  const r=await api('GET','/admin/keys/'+encodeURIComponent(name));if(!r?.ok)return;
+  document.querySelectorAll('.key-value').forEach(s=>{
+    if(s.getAttribute('onclick')?.includes(`'${name}'`)){s.textContent=r.data.value;setTimeout(()=>{s.textContent='••••••••••••'},8000)}
+  })
+}
+let editingKey=null;
+function openAddKey(){editingKey=null;document.getElementById('modal-key-title').textContent='Add Key';document.getElementById('key-name-input').value='';document.getElementById('key-name-input').disabled=false;document.getElementById('key-value-input').value='';document.getElementById('modal-key').classList.add('open');document.getElementById('key-name-input').focus()}
+function openEditKey(name){editingKey=name;document.getElementById('modal-key-title').textContent='Edit / Rotate Key';document.getElementById('key-name-input').value=name;document.getElementById('key-name-input').disabled=true;document.getElementById('key-value-input').value='';document.getElementById('modal-key').classList.add('open');document.getElementById('key-value-input').focus()}
+async function saveKey(){
+  const name=document.getElementById('key-name-input').value.trim();
+  const value=document.getElementById('key-value-input').value.trim();
+  if(!name||!value){toast('Name and value required','error');return}
+  const r=await api('POST','/admin/keys/'+encodeURIComponent(name),{value});
+  if(r?.ok){closeModal('modal-key');toast(`"${name}" saved`,'success');loadKeys()}
+  else toast(r?.data?.error||'Save failed','error')
+}
+async function deleteKey(name){
+  if(!confirm(`Delete "${name}"?`))return;
+  const r=await api('DELETE','/admin/keys/'+encodeURIComponent(name));
+  if(r?.ok){toast(`"${name}" deleted`,'info');loadKeys()}else toast(r?.data?.error||'Delete failed','error')
+}
+function toggleKeyVisibility(){const i=document.getElementById('key-value-input');i.type=i.type==='password'?'text':'password'}
+async function loadTokens(){
+  const r=await api('GET','/admin/tokens');if(!r?.ok)return;
+  const tokens=r.data.tokens;const el=document.getElementById('tokens-list');
+  if(!tokens.length){el.innerHTML='<div class="empty-state">No tokens yet.</div>';return}
+  el.innerHTML=`<div class="card">${tokens.map(t=>`<div class="card-row"><div style="flex:1"><div style="font-weight:600;color:var(--cyan)">${t.label}</div><small>Scope: ${Array.isArray(t.scope)?t.scope.join(', '):t.scope} · IPs: ${t.allowed_ips?.length?t.allowed_ips.join(', '):'any'} · Used: ${t.use_count||0}×</small></div><div style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge badge-green">active</span><button class="btn btn-sm btn-danger" onclick="revokeToken('${t.token_hash}','${t.label}')">Revoke</button></div></div>`).join('')}</div>`
+}
+function openMintToken(){document.getElementById('token-label').value='';document.getElementById('token-scope').value='*';document.getElementById('token-ips').value='';document.getElementById('token-result').classList.add('hidden');document.getElementById('mint-btn').classList.remove('hidden');document.getElementById('modal-token').classList.add('open')}
+async function mintToken(){
+  const label=document.getElementById('token-label').value.trim()||'openclaw-agent';
+  const scopeRaw=document.getElementById('token-scope').value.trim();
+  const scope=scopeRaw==='*'?['*']:scopeRaw.split(',').map(s=>s.trim()).filter(Boolean);
+  const ipsRaw=document.getElementById('token-ips').value.trim();
+  const allowed_ips=ipsRaw?ipsRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
+  const r=await api('POST','/admin/tokens',{label,scope,allowed_ips});
+  if(r?.ok){document.getElementById('token-value').textContent=r.data.token;document.getElementById('token-result').classList.remove('hidden');document.getElementById('mint-btn').classList.add('hidden');loadTokens()}
+  else toast(r?.data?.error||'Mint failed','error')
+}
+function copyToken(){navigator.clipboard.writeText(document.getElementById('token-value').textContent).then(()=>toast('Token copied','success'))}
+async function revokeToken(hash,label){
+  if(!confirm(`Revoke "${label}"?`))return;
+  const r=await api('DELETE','/admin/tokens/'+encodeURIComponent(hash));
+  if(r?.ok){toast(`"${label}" revoked`,'info');loadTokens()}else toast(r?.data?.error||'Revoke failed','error')
+}
+async function loadTotpStatus(){const r=await fetch('/health');const d=await r.json().catch(()=>({}));const el=document.getElementById('totp-status-area');el.innerHTML=d.totp_enabled?'<span class="badge badge-green">TOTP Enabled</span> <small style="margin-left:.5rem">MFA active.</small>':'<span class="badge badge-yellow">TOTP Disabled</span> <small style="margin-left:.5rem">Password only.</small>'}
+async function setupTotp(){
+  const r=await api('POST','/admin/totp/setup');if(!r?.ok){toast(r?.data?.error||'Failed','error');return}
+  document.getElementById('qr-img').src='data:image/png;base64,'+r.data.qr_base64;
+  document.getElementById('totp-secret-display').textContent=r.data.secret;
+  document.getElementById('totp-qr-area').classList.remove('hidden');
+  loadTotpStatus();toast('TOTP enabled — scan QR now','success')
+}
+async function disableTotp(){
+  if(!confirm('Disable TOTP?'))return;
+  const r=await api('DELETE','/admin/totp');
+  if(r?.ok){document.getElementById('totp-qr-area').classList.add('hidden');loadTotpStatus();toast('TOTP disabled','info')}
+}
+async function loadBackups(){
+  const r=await api('GET','/admin/backups');if(!r?.ok)return;
+  const backups=r.data.backups;const el=document.getElementById('backups-list');
+  if(!backups.length){el.innerHTML='<div class="empty-state">No backups yet.</div>';return}
+  el.innerHTML=`<div class="card">${backups.map(b=>`<div class="card-row"><span class="key-name" style="font-size:12px">${b.filename}</span><span style="color:var(--dim);font-size:11px;flex:1">${new Date(b.created*1000).toLocaleString()} · ${(b.size/1024).toFixed(1)} KB</span><button class="btn btn-sm" onclick="restoreBackup('${b.filename}')">Restore</button></div>`).join('')}</div>`
+}
+async function triggerBackup(){const r=await api('POST','/admin/backups');if(r?.ok){toast('Backup created: '+r.data.file,'success');loadBackups()}else toast(r?.data?.error||'Failed','error')}
+async function restoreBackup(filename){
+  if(!confirm(`Restore "${filename}"? Current vault will be backed up first.`))return;
+  const r=await api('POST','/admin/backups/'+encodeURIComponent(filename)+'/restore');
+  if(r?.ok)toast('Restored from '+filename,'success');else toast(r?.data?.error||'Failed','error')
+}
+async function loadAudit(){
+  const r=await api('GET','/admin/audit?limit=200');if(!r?.ok)return;
+  const entries=r.data.entries;const el=document.getElementById('audit-list');
+  if(!entries.length){el.innerHTML='<div class="empty-state">No audit entries yet.</div>';return}
+  el.innerHTML=entries.map(e=>`<div class="audit-row"><span style="color:var(--dim)">${new Date(e.ts).toLocaleString()}</span><span class="badge ${e.success!==false?'badge-green':'badge-red'}">${e.event}</span><span style="color:var(--dim)">${e.ip}</span><span>${e.detail||''}</span></div>`).join('')
+}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+document.querySelectorAll('.modal-bg').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')})});
+let toastTimer;
+function toast(msg,type='info'){const el=document.getElementById('toast');el.textContent=msg;el.className=`show ${type}`;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{el.className=''},3500)}
+if(isLoggedIn()){showApp();showTab('keys');loadHealth()}
+</script>
+</body>
+</html>

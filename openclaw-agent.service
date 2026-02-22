@@ -1,0 +1,38 @@
+[Unit]
+Description=OpenClaw AI Agent
+After=network.target
+After=openclaw-vault.service
+Requires=openclaw-vault.service
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/opt/openclaw
+
+# Boot injector runs first — pulls keys from vault, writes runtime config,
+# then execs openclaw with injected env vars. This process is replaced by
+# openclaw itself (os.execvpe), so systemd tracks the right PID.
+ExecStart=/opt/openclaw/venv/bin/python /opt/openclaw/keyvault/openclaw_boot_inject.py --start
+
+# Vault connection config — token is the ONLY secret here
+# The machine token can only READ keys, not admin the vault
+EnvironmentFile=/etc/openclaw/vault.env
+Environment=VAULT_URL=http://127.0.0.1:7777
+Environment=VAULT_MACHINE_TOKEN=X5IOUyJDlZmbEtpy7RzIIk6-ujRmDD2Cr0S7T_oHSUAgSN1V5F6zjRfhb5yuZoGG
+Environment=OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json
+Environment=OPENCLAW_RUNTIME=/root/.openclaw/openclaw.runtime.json
+Environment=OPENCLAW_BIN=openclaw
+
+Restart=on-failure
+RestartSec=10
+
+# If vault is unreachable at boot, retry rather than hard-fail
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
