@@ -1,0 +1,211 @@
+#!/root/APIKeys/venv/bin/python3
+"""clawvault — Interactive OpenClaw vault manager"""
+import sys, os, getpass
+from pathlib import Path
+
+VAULT_ENV  = Path("/etc/openclaw/vault.env")
+INJECT_DIR = Path("/root/APIKeys")
+
+def load_env():
+    if not VAULT_ENV.exists():
+        sys.exit(f"Error: {VAULT_ENV} not found.")
+    for line in VAULT_ENV.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+
+def get_fernet():
+    from cryptography.fernet import Fernet
+    sys.path.insert(0, str(INJECT_DIR))
+    master = os.environ.get("VAULT_MASTER_KEY", "")
+    if not master:
+        sys.exit("Error: VAULT_MASTER_KEY not set")
+    return Fernet(master.encode())
+
+def get_core():
+    sys.path.insert(0, str(INJECT_DIR))
+    import vault_core as core
+    return core
+
+GREEN="\033[92m"; YELLOW="\033[93m"; RED="\033[91m"
+CYAN="\033[96m"; BOLD="\033[1m"; DIM="\033[2m"; RESET="\033[0m"
+
+def clear():
+    os.system("clear")
+
+def header():
+    print(f"{CYAN}{BOLD}")
+    print("  ╔═══════════════════════════════╗")
+    print("  ║      ClawVault Manager        ║")
+    print("  ╚═══════════════════════════════╝")
+    print(f"{RESET}")
+
+def menu():
+    print(f"  {BOLD}1){RESET} List keys")
+    print(f"  {BOLD}2){RESET} Add key")
+    print(f"  {BOLD}3){RESET} Rotate key")
+    print(f"  {BOLD}4){RESET} Delete key")
+    print(f"  {BOLD}5){RESET} Show key value")
+    print(f"  {BOLD}6){RESET} Export (update runtime config)")
+    print(f"  {BOLD}0){RESET} Exit")
+    print()
+
+def prompt(msg):
+    try:
+        return input(msg).strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nAborted.")
+        return ""
+
+def pause():
+    input(f"\n{DIM}Press Enter to continue...{RESET}")
+
+def do_list(core, fernet):
+    vault = core.load_vault(fernet)
+    if not vault:
+        print(f"\n{YELLOW}Vault is empty.{RESET}")
+        return
+    ages = core.get_key_ages(list(vault.keys()))
+    print(f"\n  {BOLD}{'Key':<32} {'Age':>10}{RESET}")
+    print("  " + "─" * 44)
+    for name in sorted(vault.keys()):
+        age_info = ages.get(name, {})
+        days     = age_info.get("age_days")
+        age_str  = f"{days}d" if days is not None else "unknown"
+        stale    = age_info.get("stale", False)
+        colour   = YELLOW if stale else RESET
+        flag     = " ⚠" if stale else ""
+        print(f"  {colour}{name:<32} {age_str:>10}{flag}{RESET}")
+    print(f"\n  {DIM}{len(vault)} key(s){RESET}")
+
+def do_add(core, fernet, rotate=False):
+    vault = core.load_vault(fernet)
+    if rotate:
+        keys = sorted(vault.keys())
+        if not keys:
+            print(f"\n{YELLOW}Vault is empty.{RESET}")
+            return
+        print(f"\n  {BOLD}Available keys:{RESET}")
+        for i, k in enumerate(keys, 1):
+            print(f"  {i}) {k}")
+        choice = prompt("\n  Select number or type key name: ")
+        if choice.isdigit() and 1 <= int(choice) <= len(keys):
+            name = keys[int(choice) - 1]
+        else:
+            name = choice.upper()
+    else:
+        name = prompt("\n  Key name (e.g. GROK_API_KEY): ").upper()
+
+    if not name:
+        return
+
+    if name in vault and not rotate:
+        confirm = prompt(f"  {YELLOW}{name} exists. Overwrite? [y/N]{RESET} ")
+        if confirm.lower() != "y":
+            print("  Aborted.")
+            return
+
+    value = getpass.getpass(f"  Value for {CYAN}{name}{RESET}: ")
+    if not value.strip():
+        print(f"  {RED}Empty value not allowed.{RESET}")
+        return
+
+    is_new      = name not in vault
+    vault[name] = value
+    core.save_vault(fernet, vault)
+    core.track_key_write(name, is_new)
+    core.write_backup(fernet)
+    core.audit(f"cli_key_{'created' if is_new else 'updated'}", "cli", "localhost", name)
+    verb = "Added" if is_new else "Updated"
+    print(f"\n  {GREEN}✓ {verb}: {name}{RESET}")
+    print(f"  {DIM}Run Export (6) to update runtime config.{RESET}")
+
+def do_delete(core, fernet):
+    vault = core.load_vault(fernet)
+    keys  = sorted(vault.keys())
+    if not keys:
+        print(f"\n{YELLOW}Vault is empty.{RESET}")
+        return
+    print(f"\n  {BOLD}Available keys:{RESET}")
+    for i, k in enumerate(keys, 1):
+        print(f"  {i}) {k}")
+    choice = prompt("\n  Select number or type key name: ")
+    if choice.isdigit() and 1 <= int(choice) <= len(keys):
+        name = keys[int(choice) - 1]
+    else:
+        name = choice.upper()
+    if name not in vault:
+        print(f"  {RED}Not found: {name}{RESET}")
+        return
+    confirm = prompt(f"  {RED}Delete {name}? [y/N]{RESET} ")
+    if confirm.lower() != "y":
+        print("  Aborted.")
+        return
+    del vault[name]
+    core.save_vault(fernet, vault)
+    core.write_backup(fernet)
+    core.audit("cli_key_deleted", "cli", "localhost", name)
+    print(f"\n  {GREEN}✓ Deleted: {name}{RESET}")
+
+def do_show(core, fernet):
+    vault = core.load_vault(fernet)
+    keys  = sorted(vault.keys())
+    if not keys:
+        print(f"\n{YELLOW}Vault is empty.{RESET}")
+        return
+    print(f"\n  {BOLD}Available keys:{RESET}")
+    for i, k in enumerate(keys, 1):
+        print(f"  {i}) {k}")
+    choice = prompt("\n  Select number or type key name: ")
+    if choice.isdigit() and 1 <= int(choice) <= len(keys):
+        name = keys[int(choice) - 1]
+    else:
+        name = choice.upper()
+    if name not in vault:
+        print(f"  {RED}Not found: {name}{RESET}")
+        return
+    confirm = prompt(f"  {YELLOW}Show plaintext for {name}? [y/N]{RESET} ")
+    if confirm.lower() != "y":
+        print("  Aborted.")
+        return
+    core.audit("cli_key_viewed", "cli", "localhost", name)
+    print(f"\n  {CYAN}{name}{RESET} = {vault[name]}\n")
+
+def do_export():
+    inject = INJECT_DIR / "openclaw_boot_inject.py"
+    python = INJECT_DIR / "venv" / "bin" / "python3"
+    if not inject.exists():
+        print(f"  {RED}Error: {inject} not found{RESET}")
+        return
+    print(f"\n  {BOLD}Running boot injector...{RESET}\n")
+    os.execv(str(python), [str(python), str(inject), "--write"])
+
+def main():
+    load_env()
+    core   = get_core()
+    fernet = get_fernet()
+    while True:
+        clear()
+        header()
+        menu()
+        choice = prompt("  Select: ")
+        if choice == "1":
+            clear(); header(); do_list(core, fernet); pause()
+        elif choice == "2":
+            clear(); header(); do_add(core, fernet, rotate=False); pause()
+        elif choice == "3":
+            clear(); header(); do_add(core, fernet, rotate=True); pause()
+        elif choice == "4":
+            clear(); header(); do_delete(core, fernet); pause()
+        elif choice == "5":
+            clear(); header(); do_show(core, fernet); pause()
+        elif choice == "6":
+            clear(); header(); do_export()
+        elif choice == "0":
+            print(f"\n  {DIM}Bye.{RESET}\n"); break
+        else:
+            print(f"  {YELLOW}Invalid option.{RESET}"); pause()
+
+if __name__ == "__main__":
+    main()
