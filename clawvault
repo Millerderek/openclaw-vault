@@ -71,7 +71,7 @@ def do_list(core, fernet):
     print("  " + "─" * 44)
     for name in sorted(vault.keys()):
         age_info = ages.get(name, {})
-        days     = age_info.get("age_days")
+        days     = age_info.get("days_since_rotation")
         age_str  = f"{days}d" if days is not None else "unknown"
         stale    = age_info.get("stale", False)
         colour   = YELLOW if stale else RESET
