@@ -30,6 +30,7 @@ TOKENS_FILE  = Path(os.environ.get("TOKENS_FILE",  "/etc/openclaw/tokens.enc"))
 ROTATE_FILE  = Path(os.environ.get("ROTATE_FILE",  "/etc/openclaw/rotation.json"))
 ENV_FILE     = Path(os.environ.get("VAULT_ENV",    "/etc/openclaw/vault.env"))
 STALE_DAYS   = int(os.environ.get("STALE_DAYS", "90"))
+ACL_FILE     = Path(os.environ.get("ACL_FILE",     "/etc/openclaw/vault_acl.json"))
 
 
 def check_env_file_permissions() -> list:
@@ -315,3 +316,137 @@ def read_audit(limit: int = 200) -> list:
         return []
     lines = AUDIT_FILE.read_text().strip().splitlines()
     return [json.loads(l) for l in lines[-limit:]][::-1]
+
+
+# ── ACL — Per-user key access control ─────────────────────────────────────
+
+# ACL format:
+# {
+#   "users": {
+#     "derek": {
+#       "permissions": { "OPENROUTER_*": "rw", "HA_TOKEN": "r" },
+#       "created_at": "...", "created_by": "root"
+#     }
+#   }
+# }
+#
+# Permission values: "r" = read (list + view), "w" = write (add/rotate), "rw" = both
+# Key patterns: exact match or trailing wildcard ("OPENROUTER_*")
+# Root always has full access — ACL is only enforced for non-root callers.
+
+import fnmatch
+import pwd
+
+
+def load_acl() -> dict:
+    """Load the ACL file. Returns {"users": {...}} or empty structure."""
+    if not ACL_FILE.exists():
+        return {"users": {}}
+    try:
+        data = json.loads(ACL_FILE.read_text())
+        if "users" not in data:
+            data["users"] = {}
+        return data
+    except (json.JSONDecodeError, OSError):
+        return {"users": {}}
+
+
+def save_acl(data: dict) -> None:
+    """Save ACL file with restricted permissions."""
+    ACL_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ACL_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.chmod(0o600)
+    tmp.replace(ACL_FILE)
+
+
+def get_calling_user() -> str:
+    """Get the actual calling user (handles sudo)."""
+    sudo_user = os.environ.get("SUDO_USER", "")
+    if sudo_user:
+        return sudo_user
+    try:
+        return pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        return str(os.getuid())
+
+
+def is_root_caller() -> bool:
+    """True if the effective user is root AND not sudo-ing from another user."""
+    return os.getuid() == 0 and not os.environ.get("SUDO_USER", "")
+
+
+def acl_grant(username: str, key_pattern: str, permission: str, granted_by: str = "root") -> None:
+    """Grant a user access to keys matching pattern.
+
+    Args:
+        username:    Linux username to grant access to
+        key_pattern: Key name or glob pattern (e.g. "OPENROUTER_*", "*")
+        permission:  "r" (read/view), "w" (write/rotate), "rw" (both)
+        granted_by:  Who issued the grant (for audit trail)
+    """
+    if permission not in ("r", "w", "rw"):
+        raise ValueError(f"Invalid permission '{permission}' — use 'r', 'w', or 'rw'")
+
+    acl = load_acl()
+    if username not in acl["users"]:
+        acl["users"][username] = {
+            "permissions": {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": granted_by,
+        }
+    acl["users"][username]["permissions"][key_pattern] = permission
+    save_acl(acl)
+    audit("acl_grant", granted_by, "localhost",
+          f"user={username} pattern={key_pattern} perm={permission}")
+
+
+def acl_revoke(username: str, key_pattern: str = None) -> bool:
+    """Revoke a user's access. If key_pattern is None, remove the user entirely."""
+    acl = load_acl()
+    if username not in acl["users"]:
+        return False
+    if key_pattern is None:
+        del acl["users"][username]
+    else:
+        acl["users"][username]["permissions"].pop(key_pattern, None)
+        if not acl["users"][username]["permissions"]:
+            del acl["users"][username]
+    save_acl(acl)
+    detail = f"user={username}" + (f" pattern={key_pattern}" if key_pattern else " (all)")
+    audit("acl_revoke", get_calling_user(), "localhost", detail)
+    return True
+
+
+def acl_check(username: str, key_name: str, need: str = "r") -> bool:
+    """Check if a user has the required permission for a specific key.
+
+    Args:
+        username:  Linux username
+        key_name:  The actual key name (e.g. "OPENROUTER_API_KEY")
+        need:      "r" for read/view, "w" for write/rotate
+    Returns:
+        True if access is allowed
+    """
+    acl = load_acl()
+    user_entry = acl["users"].get(username)
+    if not user_entry:
+        return False
+
+    for pattern, perm in user_entry["permissions"].items():
+        if fnmatch.fnmatch(key_name, pattern) or fnmatch.fnmatch(key_name.upper(), pattern.upper()):
+            if need == "r" and perm in ("r", "rw"):
+                return True
+            if need == "w" and perm in ("w", "rw"):
+                return True
+    return False
+
+
+def acl_filter_keys(username: str, vault_keys: list, need: str = "r") -> list:
+    """Filter a list of key names to only those the user can access."""
+    return [k for k in vault_keys if acl_check(username, k, need)]
+
+
+def acl_list() -> dict:
+    """Return the full ACL for display."""
+    return load_acl()["users"]
